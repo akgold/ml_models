@@ -16,9 +16,14 @@
 ols <- function(y, x) {
   l <- list(b = solve(t(x) %*% x) %*% t(x) %*% y,
             x = x,
-            y = y)
-  class(l) <- "ols"
+            y = y,
+            model = ols)
+  class(l) <- c("ols", "ml_model")
   l
+}
+
+print.ols <- function(x) {
+  print(x$b)
 }
 
 #' Predict from OLS
@@ -51,33 +56,37 @@ predict.ols <- function(ols, x = ols$x) {
 #' @examples
 #' d <- get_sim_data()
 #' f_step_reg(ols, d$x, d$y)
-f_step_reg <- function(model, x, y) {
-  all_ones <- which(apply(x, 2, function(x_i) all(x_i == 1)))
-  if (length(all_ones) > 0) {
-    x <- x[,-all_ones]
-  }
+f_step_reg <- function(model, x, y, ...) {
+  x <- add_intercept(x)
 
-  # Get initial residuals from just intercept
-  ones <- rep(1, length(y))
-  trained <- model(y, ones)
-
-  do_f_step(ones, x, y, predict(trained), model)
+  do_f_step(y, x[,seq(2, ncol(x))], model(y, x[,1]), ...)
 }
 
-do_f_step <- function(x_in, x_not_in, y, y_hat, model) {
-  if (ncol(x_not_in) == 1) {
-    return(model(y, cbind(x_in, x_not_in)))
+do_f_step <- function(y, x_not_in, model, ...) {
+  if (ncol(x_not_in) == 0) {
+    return(list(model))
   }
 
   # get col of x most correlated with residuals
-  cors <- apply(x_not_in, 2, function(x_i) cor(x_i, y - y_hat)) %>% abs()
+  cors <- apply(x_not_in, 2, function(x_i) cor(x_i, y - predict(model))) %>%
+    abs()
   col <- which(cors == max(cors))
 
   # retrain model
-  x <- cbind(x_in, x_not_in[,col])
-  mod <- model(y, x)
-  list(mod,
-       do_f_step(x, x_not_in[,-col, drop = FALSE], y, predict(mod), model))
+  c(list(model),
+       do_f_step(x_not_in = x_not_in[,-col, drop = FALSE],
+                 y = y,
+                 model = model$model(y, cbind(model$x, x_not_in[,col]), ...)))
 }
+
+add_intercept <- function(x) {
+  all_ones <- which(apply(x, 2, function(x_i) all(x_i == 1)))
+  if (all_ones != 1) {
+    x <- x[,-all_ones]
+    x <- cbind(rep(1, length(y)), x)
+  }
+  x
+}
+
 
 
